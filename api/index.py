@@ -1,5 +1,4 @@
 import os
-import json
 import gspread
 import traceback
 import shutil
@@ -13,7 +12,7 @@ import uvicorn
 
 app = FastAPI()
 
-# スマホアプリからの通信を許可する設定
+# CORS設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,109 +21,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ★ Vercel環境対応: 保存先を一時フォルダに切り替え（元のフォルダ構造を維持）
-BASE_DIR = "/tmp" if os.environ.get("VERCEL") else os.path.dirname(__file__)
-IMAGE_FOLDER_NAME = "社員_アルバイト面接書_Images"
+BASE_DIR = os.path.dirname(__file__)
+IMAGE_FOLDER_NAME = "Images_Storage"
 IMAGE_DIR = os.path.join(BASE_DIR, IMAGE_FOLDER_NAME)
 
 if not os.path.exists(IMAGE_DIR):
     os.makedirs(IMAGE_DIR)
 
-# 画像をURLで配信するための設定
 app.mount(f"/{IMAGE_FOLDER_NAME}", StaticFiles(directory=IMAGE_DIR), name="images")
 
 def get_spreadsheet():
-    scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    
-    # ★ Vercel環境対応: 環境変数 GOOGLE_CREDENTIALS から認証
-    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
-    if creds_json:
-        try:
-            info = json.loads(creds_json)
-            creds = Credentials.from_service_account_info(info, scopes=scopes)
-        except Exception as e:
-            # JSON形式が不正な場合のエラーハンドリング
-            print(f"JSON Decode Error: {e}")
-            raise e
-    else:
-        # ローカル環境用（元の動作を維持）
-        creds = Credentials.from_service_account_file('credentials.json', scopes=scopes)
-        
-    gc = gspread.authorize(creds)
-    # あなたのスプレッドシートID
-    sh = gc.open_by_key("1s-MMS9JhIzOie3GfRA_DFkQ-1KphszhB0sQDf47ZG6s")
-    return sh
+    scopes = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    # credentials.jsonは同じディレクトリに配置
+    creds = Credentials.from_service_account_file('credentials.json', scopes=scopes)
+    client = gspread.authorize(creds)
+    return client.open("キャスト管理名簿") # スプレッドシート名
 
 @app.get("/search")
-def search():
+async def search_data(q: str = "", type: str = "キャスト"):
     try:
         sh = get_spreadsheet()
-        result = []
-        # スタッフシートの取得ロジック（元コードを完全維持）
-        try:
-            ws_staff = sh.worksheet("社員/アルバイト面接書")
-            all_data_staff = ws_staff.get_all_values()
-            if all_data_staff:
-                headers = all_data_staff[0]
-                for row in all_data_staff[1:]:
-                    item = {headers[i]: row[i] if i < len(row) else "" for i in range(len(headers))}
-                    item["シート区分"] = "スタッフ"
-                    result.append(item)
-        except Exception as e:
-            print(f"スタッフシート取得エラー: {e}")
-
-        # キャストシートの取得ロジック（元コードを完全維持）
-        try:
-            ws_cast = sh.worksheet("キャストエントリーシート")
-            all_data_cast = ws_cast.get_all_values()
-            if all_data_cast:
-                headers = all_data_cast[0]
-                for row in all_data_cast[1:]:
-                    item = {headers[i]: row[i] if i < len(row) else "" for i in range(len(headers))}
-                    item["シート区分"] = "キャスト"
-                    result.append(item)
-        except Exception as e:
-            print(f"キャストシート取得エラー: {e}")
-            
-        return {"status": "success", "data": result}
-    except Exception as e:
-        # デバッグ用エラーレスポンス（元コードを維持）
-        return {"status": "debug_error", "reason": str(e), "traceback": traceback.format_exc()}
-
-@app.get("/get_image")
-async def get_image(image_path: str):
-    try:
-        full_path = os.path.join(BASE_DIR, image_path.replace("\\", "/"))
-        if not os.path.exists(full_path):
-            raise HTTPException(status_code=404, detail="Image not found")
-        return FileResponse(full_path)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/upload_image")
-async def upload_image(file: UploadFile = File(...), name: str = Form(...), sheet_type: str = Form(...)):
-    try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_name = f"{timestamp}_photo.jpg"
-        save_path = os.path.join(IMAGE_DIR, file_name)
-        
-        with open(save_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        saved_path = f"{IMAGE_FOLDER_NAME}/{file_name}"
-        sh = get_spreadsheet()
-        sheet_name = "キャストエントリーシート" if sheet_type == "キャスト" else "社員/アルバイト面接書"
+        sheet_name = "キャストエントリーシート" if type == "キャスト" else "社員/アルバイト面接書"
         worksheet = sh.worksheet(sheet_name)
+        data = worksheet.get_all_records()
         
-        headers = worksheet.row_values(1)
-        name_col_index = headers.index("お名前") + 1
-        photo_col_index = headers.index("顔写真") + 1
-        
-        name_column_data = worksheet.col_values(name_col_index)
-        row_index = name_column_data.index(name) + 1
-        
-        worksheet.update_cell(row_index, photo_col_index, saved_path)
-        return {"status": "success", "image_path": saved_path}
+        if q:
+            filtered = [r for r in data if q in str(r.values())]
+            return filtered
+        return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -143,43 +70,35 @@ async def update_data(request: Request):
         name_col_index = headers.index("お名前") + 1
         name_column_data = worksheet.col_values(name_col_index)
         
+        if target_name not in name_column_data:
+            raise HTTPException(status_code=404, detail="User not found")
+            
         row_index = name_column_data.index(target_name) + 1
-        
         cells_to_update = []
+        
         for key, value in updated_person.items():
-            if key in headers and key != "お名前" and key != "シート区分":
+            if key in headers and key not in ["お名前", "シート区分"]:
                 col_index = headers.index(key) + 1
                 cells_to_update.append(gspread.Cell(row_index, col_index, value))
         
         if cells_to_update:
             worksheet.update_cells(cells_to_update)
-            
         return {"status": "success"}
     except Exception as e:
-        print(f"Update Error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/delete_data")
-async def delete_data(request: Request):
+@app.post("/upload_image")
+async def upload_image(file: UploadFile = File(...), person_name: str = Form(...)):
     try:
-        data = await request.json()
-        target_name = data.get("お名前")
-        sheet_type = data.get("シート区分")
+        file_extension = os.path.splitext(file.filename)[1]
+        filename = f"{person_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{file_extension}"
+        file_path = os.path.join(IMAGE_DIR, filename)
         
-        sh = get_spreadsheet()
-        sheet_name = "キャストエントリーシート" if sheet_type == "キャスト" else "社員/アルバイト面接書"
-        worksheet = sh.worksheet(sheet_name)
-        
-        headers = worksheet.row_values(1)
-        name_col_index = headers.index("お名前") + 1
-        name_column_data = worksheet.col_values(name_col_index)
-        
-        row_index = name_column_data.index(target_name) + 1
-        worksheet.delete_rows(row_index)
-        
-        return {"status": "success"}
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        return {"image_path": filename}
     except Exception as e:
-        print(f"Delete Error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
