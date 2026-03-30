@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "Warp Management App",
+    "slug": "warp-management-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.syado.warpsystem"
+    },
+    "android": {
+      "package": "com.syado.warpsystem",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "usesCleartextTraffic": true
+    },
+    "package": "com.syado.warpsystem",
+    "permissions": [
+      "CAMERA",
+      "READ_EXTERNAL_STORAGE",
+      "WRITE_EXTERNAL_STORAGE"
+    ],
+    "usesCleartextTraffic": true,
+    "extra": {
+      "eas": {
+        "projectId": "ad15ebe5-6b11-463e-9e4a-a8a8562f53fb"
+      }
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker"
+    ]
+  },
+  "extra": {
+    "eas": {
+      "projectId": "ad15ebe5-6b11-463e-9e4a-a8a8562f53fb"
+    }
+  },
+  "plugins": [
+    [
+      "expo-image-picker",
+      {
+        "photosPermission": "The app accesses your photos to let you share them with your representative.",
+        "cameraPermission": "The app accesses your camera to take staff photos."
+      }
+    ]
+  ]
+}
